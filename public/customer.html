@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title> Customers</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+</head>
+
+<body class="bg-gray-100 min-h-screen p-6">
+    <div class="max-w-6xl mx-auto">
+        <div class="flex justify-between items-center mb-4">
+            <h1 class="text-3xl font-bold">Customers</h1>
+            <!-- Toast -->
+            <div id="toast"
+                class="fixed top-5 right-5 bg-green-600 text-white px-4 py-2 rounded shadow hidden transition-opacity duration-300">
+            </div>
+            <button id="openModal" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">+ Add
+                Customer</button>
+        </div>
+
+        <div class="mb-4">
+            <input id="searchInput" type="text" placeholder="Search customers..." class="w-full p-2 border rounded" />
+        </div>
+
+        <div id="customerList" class="bg-white shadow rounded p-4"></div>
+        <div id="pagination" class="flex justify-center mt-4 space-x-2"></div>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white w-full max-w-lg p-6 rounded shadow relative">
+            <button id="closeModal" class="absolute top-2 right-2 text-gray-600 hover:text-black">&times;</button>
+            <h2 class="text-xl font-semibold mb-4">Add Customer</h2>
+            <form id="customerForm" class="space-y-4">
+                <input type="hidden" name="_id" />
+                <input name="companyName" placeholder="Company Name" required class="w-full border p-2 rounded" />
+                <input name="phone" placeholder="Phone" class="w-full border p-2 rounded" />
+                <input name="email" type="email" placeholder="Email" class="w-full border p-2 rounded" />
+                <input name="contactPerson" placeholder="Contact Person" class="w-full border p-2 rounded" />
+                <textarea name="inScope" rows="3" placeholder="In Scope " class="w-full border p-2 rounded"></textarea>
+                <textarea name="outScope" rows="3" placeholder="Out of Scope  "
+                    class="w-full border p-2 rounded"></textarea>
+                <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Save</button>
+            </form>
+        </div>
+    </div>
+
+
+
+    <script>
+        const modal = document.getElementById('modal');
+        const openBtn = document.getElementById('openModal');
+        const closeBtn = document.getElementById('closeModal');
+        const toast = document.getElementById('toast');
+        const form = document.getElementById('customerForm');
+        const customerList = document.getElementById('customerList');
+        const searchInput = document.getElementById('searchInput');
+        const pagination = document.getElementById('pagination');
+
+        let currentPage = 1;
+        let searchQuery = '';
+
+        openBtn.onclick = () => modal.classList.remove('hidden');
+        closeBtn.onclick = () => modal.classList.add('hidden');
+
+        form.addEventListener('submit', async e => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form));
+            const id = data._id;
+            delete data._id;
+
+            try {
+                const method = id ? 'PUT' : 'POST';
+                const url = id ? `/api/customers/${id}` : '/api/customers';
+
+                const res = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+
+                if (res.ok) {
+                    showToast(id ? 'Customer updated!' : 'Customer added!');
+                    form.reset();
+                    modal.classList.add('hidden');
+                    loadCustomers(currentPage);
+                } else {
+                    const msg = await res.text();
+                    showToast(msg, true);
+                }
+            } catch (err) {
+                showToast('Network error', true);
+            }
+        });
+
+
+        function showToast(msg, error = false) {
+            toast.textContent = msg;
+            toast.className = `fixed top-5 right-5 px-4 py-2 rounded shadow transition-opacity duration-300 ${error ? 'bg-red-600' : 'bg-green-600'} text-white`;
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 3000);
+        }
+
+        async function loadCustomers(page = 1) {
+            const res = await fetch(`/api/customers?page=${page}&search=${searchQuery}`);
+            const { customers, totalPages } = await res.json();
+            currentPage = page;
+
+            if (customers.length === 0) {
+                customerList.innerHTML = `
+    <div class="text-center text-gray-500 py-10 text-lg">
+      <i class="fas fa-exclamation-circle text-2xl mb-2"></i><br>
+      No Data found.
+    </div>`;
+                pagination.innerHTML = '';
+                return;
+            }
+
+            customerList.innerHTML = `
+  <table class="w-full text-sm">
+    <thead class="bg-gray-200 text-left">
+      <tr>
+        <th class="p-2">SrNo.</th>
+        <th class="p-2">Company</th>
+        <th class="p-2">Email</th>
+        <th class="p-2">Phone</th>
+        <th class="p-2">Contact</th>
+        <th class="p-2">In Scope</th>
+        <th class="p-2">Out of Scope</th>
+        <th class="p-2">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${customers.map(c => `
+        <tr class="border-t">
+          <td class="p-2">${c.SrNo}</td>
+          <td class="p-2">${c.companyName}</td>
+          <td class="p-2">${c.email || '-'}</td>
+          <td class="p-2">${c.phone || '-'}</td>
+          <td class="p-2">${c.contactPerson || '-'}</td>
+          <td class="p-2">${(c.inScope || '').split(',').join('<br>')}</td>
+          <td class="p-2">${(c.outScope || '').split(',').join('<br>')}</td>
+          <td class="p-2 space-x-2">
+            <button onclick="editCustomer('${c._id}')" class="text-blue-600"><i class="fas fa-edit"></i></button>
+            <button onclick="deleteCustomer('${c._id}')" class="text-red-600"><i class="fas fa-trash-alt"></i></button>
+          </td>
+        </tr>`).join('')}
+    </tbody>
+  </table>
+`;
+
+
+            // Pagination
+            pagination.innerHTML = '';
+            for (let i = 1; i <= totalPages; i++) {
+                const btn = document.createElement('button');
+                btn.textContent = i;
+                btn.className = `px-3 py-1 rounded ${i === page ? 'bg-blue-600 text-white' : 'bg-gray-200'}`;
+                btn.onclick = () => loadCustomers(i);
+                pagination.appendChild(btn);
+            }
+        }
+
+        searchInput.addEventListener('input', () => {
+            searchQuery = searchInput.value.trim();
+            loadCustomers(1);
+        });
+
+        // Initial load
+        loadCustomers();
+    </script>
+    <script>
+        let editingId = null;
+
+
+        async function editCustomer(id) {
+            const res = await fetch(`/api/customers/${id}`);
+            const customer = await res.json();
+
+            editingId = id;
+            modal.classList.remove('hidden');
+
+            for (const field in customer) {
+                const input = form.elements[field];
+                if (input) input.value = customer[field];
+            }
+        }
+
+
+        async function deleteCustomer(id) {
+            if (!confirm('Are you sure you want to delete this customer?')) return;
+
+            const res = await fetch(`/api/customers/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                showToast('Customer deleted');
+                loadCustomers(currentPage);
+            } else {
+                showToast('Delete failed', true);
+            }
+        }
+
+        form.addEventListener('submit', async e => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form));
+
+            try {
+                const id = data._id;
+                delete data._id; // clean up from payload
+
+                const method = id ? 'PUT' : 'POST';
+                const url = id ? `/api/customers/${id}` : '/api/customers';
+
+
+                const res = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+
+                if (res.ok) {
+                    showToast(editingId ? 'Customer updated!' : 'Customer added!');
+                    form.reset();
+                    modal.classList.add('hidden');
+                    loadCustomers(currentPage);
+                    editingId = null;
+                } else {
+                    const msg = await res.text();
+                    showToast(msg, true);
+                }
+            } catch (err) {
+                showToast('Network error', true);
+            }
+        });
+
+        closeBtn.onclick = () => {
+            modal.classList.add('hidden');
+            form.reset();
+            editingId = null;
+            form.elements._id.value = '';
+        };
+
+    </script>
+
+</body>
+
+</html>

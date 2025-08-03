@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Select Customer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-10">
+  <div class="max-w-3xl mx-auto bg-white p-6 rounded shadow">
+    <h1 class="text-2xl font-bold mb-4 text-center">Select Customer</h1>
+    <ul id="customerList" class="space-y-3"></ul>
+  </div>
+
+  <script>
+    async function loadCustomers() {
+      const res = await fetch('/api/customers');
+      const customers = await res.json();
+      const list = document.getElementById('customerList');
+
+      customers.forEach(c => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <div class="flex justify-between items-center border px-4 py-2 rounded hover:bg-gray-50">
+            <div>
+              <p class="font-semibold">${c.companyName}</p>
+              <p class="text-sm text-gray-600">${c.email || ''}</p>
+            </div>
+            <a href="report.html?customerId=${c._id}" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700">
+              Select
+            </a>
+          </div>
+        `;
+        list.appendChild(li);
+      });
+    }
+
+    loadCustomers();
+  </script>
+</body>
+</html>

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Create VAPT Report</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet" />
+  <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/quill-image-resize-module@3.0.0/image-resize.min.js"></script>
+<script src="https://unpkg.com/html-docx-js/dist/html-docx.js"></script>
+
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-6xl mx-auto">
+    <h1 class="text-3xl font-bold mb-6 text-center">Create VAPT Report</h1>
+
+    <form id="reportForm" class="bg-white p-6 rounded shadow space-y-6">
+      <div id="vulnList" class="space-y-4">
+        <!-- Vulnerabilities will be injected here -->
+      </div>
+      <div class="text-center">
+        <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
+          Generate Report
+        </button>
+      </div>
+    </form>
+<div class="text-center mt-4">
+  <button id="downloadBtn" class="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 hidden">
+    Download as .docx
+  </button>
+</div>
+
+    <div id="reportOutput" class="mt-10 hidden bg-white shadow rounded p-6 text-sm leading-relaxed space-y-6"></div>
+  </div>
+
+  <script>
+    const vulnList = document.getElementById("vulnList");
+    const reportOutput = document.getElementById("reportOutput");
+    const pocEditors = {}; // store Quill instances
+
+    async function loadVulnerabilities() {
+      const res = await fetch("/api/vulnerabilities");
+      const vulns = await res.json();
+
+      for (const vuln of vulns) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "border p-4 rounded shadow-sm";
+
+        wrapper.innerHTML = `
+          <label class="flex items-start gap-2">
+            <input type="checkbox" name="vulns" value="${vuln._id}" class="mt-1">
+            <span class="font-semibold text-blue-700">${vuln.title}</span>
+          </label>
+
+          <div id="inputs-${vuln._id}" class="mt-4 ml-6 hidden space-y-2">
+            <input type="text" name="module-${vuln._id}" placeholder="Module Name" class="w-full border p-2 rounded" />
+            <input type="text" name="resource-${vuln._id}" placeholder="Affected Resource" class="w-full border p-2 rounded" />
+            <div id="poc-editor-${vuln._id}" class="quill-editor bg-white border rounded h-40"></div>
+            <input type="hidden" name="poc-${vuln._id}">
+          </div>
+        `;
+
+        vulnList.appendChild(wrapper);
+
+        const checkbox = wrapper.querySelector(`input[type="checkbox"]`);
+        const inputsDiv = wrapper.querySelector(`#inputs-${vuln._id}`);
+
+        checkbox.addEventListener("change", () => {
+          inputsDiv.classList.toggle("hidden", !checkbox.checked);
+        });
+
+        // Initialize Quill editor
+        Quill.register('modules/imageResize', window.ImageResize);
+
+        // Allow custom font sizes
+const Size = Quill.import('formats/size');
+Size.whitelist = ['small', false, 'large', 'huge'];
+Quill.register(Size, true);
+
+// Create new editor
+const quill = new Quill(`#poc-editor-${vuln._id}`, {
+  theme: 'snow',
+  placeholder: 'Write PoC...',
+  modules: {
+    toolbar: {
+      container: [
+        [{ 'size': ['small', false, 'large', 'huge'] }],
+        ['bold', 'italic', 'underline'],
+        [{ 'color': [] }, { 'background': [] }],
+        [{ 'list': 'ordered' }, { 'list': 'bullet' }],  // ✅ List support
+        ['image', 'link']
+      ],
+      handlers: {
+        image: function () {
+          const input = document.createElement('input');
+          input.setAttribute('type', 'file');
+          input.setAttribute('accept', 'image/*');
+          input.click();
+
+          input.onchange = async () => {
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('image', file);
+
+            const res = await fetch('/upload', {
+              method: 'POST',
+              body: formData
+            });
+
+            const json = await res.json();
+            const range = this.quill.getSelection();
+            this.quill.insertEmbed(range.index, 'image', json.url);
+          };
+        }
+      }
+    }
+  }
+});
+
+
+        pocEditors[vuln._id] = quill;
+      }
+    }
+
+    loadVulnerabilities();
+
+    document.getElementById("reportForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const selectedIds = formData.getAll("vulns");
+
+      if (selectedIds.length === 0) {
+        alert("Please select at least one vulnerability.");
+        return;
+      }
+
+      const fullReportData = [];
+
+      for (const id of selectedIds) {
+        const res = await fetch(`/api/vulnerabilities/${id}`);
+        const vuln = await res.json();
+
+        const moduleName = formData.get(`module-${id}`) || "-";
+        const affectedResource = formData.get(`resource-${id}`) || "-";
+        const poc = pocEditors[id]?.root.innerHTML || '-';
+
+        fullReportData.push({ ...vuln, moduleName, affectedResource, poc });
+      }
+
+      renderReport(fullReportData);
+    });
+
+    function renderReport(vulns) {
+  reportOutput.innerHTML = vulns.map((vuln, i) => `
+    <div class="border border-gray-300 p-4 rounded space-y-3">
+      <h2 class="text-lg font-bold text-blue-700">${i + 1}. ${vuln.title}</h2>
+
+      <div>
+        <h3 class="font-semibold bg-blue-100 text-blue-900 px-2 py-1 rounded">Description</h3>
+        <p class="mt-1">${vuln.description}</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h3 class="font-semibold">CVSS</h3>
+          <p>Score: <strong>${vuln.cvss || "-"}</strong></p>
+          <p>Vector String: <span class="text-xs">${vuln.vectorString || "-"}</span></p>
+          <p class="mt-1">Risk Rating: <span class="font-semibold text-red-600">${vuln.riskRating || "-"}</span></p>
+        </div>
+        <div>
+          <h3 class="font-semibold">Module</h3>
+          <p>Name: ${vuln.moduleName}</p>
+          <p>Resource: ${vuln.affectedResource}</p>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="font-semibold bg-blue-100 text-blue-900 px-2 py-1 rounded">Security Risk</h3>
+        <p class="mt-1">${vuln.securityRisk}</p>
+      </div>
+
+      <div>
+        <h3 class="font-semibold bg-blue-100 text-blue-900 px-2 py-1 rounded">Workaround / Mitigation</h3>
+        <p class="mt-1">${vuln.mitigation}</p>
+      </div>
+
+      <div>
+        <h3 class="font-semibold">Reference</h3>
+        <a href="${vuln.reference}" class="text-blue-600 underline" target="_blank">${vuln.reference}</a>
+      </div>
+
+      <div>
+        <h3 class="font-semibold">Proof of Concept (PoC)</h3>
+<div class="border p-2 bg-gray-50 rounded text-sm">
+  <div class="ql-editor" id="poc-container-${i}"></div>
+</div>
+      </div>
+    </div>
+  `).join("");
+
+  // 🔥 Inject real Quill HTML output after rendering
+  vulns.forEach((vuln, i) => {
+    const pocDiv = document.getElementById(`poc-container-${i}`);
+    if (pocDiv) {
+      pocDiv.innerHTML = vuln.poc;
+    }
+    
+  });
+
+  reportOutput.classList.remove("hidden");
+  document.getElementById("downloadBtn").classList.remove("hidden");
+
+  window.scrollTo({ top: reportOutput.offsetTop, behavior: "smooth" });
+}
+document.getElementById("downloadBtn").addEventListener("click", () => {
+  const content = `
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; }
+          .ql-editor { padding: 10px; }
+        </style>
+      </head>
+      <body>${reportOutput.innerHTML}</body>
+    </html>
+  `;
+
+  const blob = window.htmlDocx.asBlob(content);
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'VAPT_Report.docx';
+  link.click();
+});
+
+
+  </script>
+</body>
+</html>
